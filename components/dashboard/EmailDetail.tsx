@@ -49,7 +49,7 @@ export default function EmailDetail({ email, onSend, onRegenerate, onBack }: Ema
     if (email.draft) return
     // Une analyse est déjà en cours côté synchro pour cet email : on évite de
     // déclencher un deuxième appel IA en parallèle pour la même chose.
-    if (email.status === 'processing') return
+    if (email.status === 'draft_ready') return
 
     autoGenerationEmailId.current = email.id
     setAutoGenerating(true)
