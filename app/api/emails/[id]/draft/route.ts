@@ -2,11 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/currentUser'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { analyzeEmail } from '@/lib/aiAnalysis'
+import { checkDraftQuota, incrementDraftUsage } from '@/lib/quota'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ ok: false, error: 'unauthenticated' }, { status: 401 })
+  }
+
+  const quota = await checkDraftQuota(user.id)
+  if (!quota.allowed) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'quota_exceeded',
+        quotaType: 'drafts',
+        plan: quota.plan,
+        limit: quota.limit,
+        used: quota.used,
+      },
+      { status: 403 }
+    )
   }
 
   const { data: email, error } = await supabaseAdmin
@@ -58,6 +74,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ai_generated_content: analysis.draft,
       })
     }
+
+    await incrementDraftUsage(user.id)
 
     return NextResponse.json({ ok: true, draft: analysis.draft, summary: analysis.summary })
   } catch (err) {

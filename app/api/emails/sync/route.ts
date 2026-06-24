@@ -5,6 +5,7 @@ import { parseGmailMessage } from '@/lib/gmailParser'
 import { analyzeEmail } from '@/lib/aiAnalysis'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { withRetry } from '@/lib/withRetry'
+import { checkEmailQuota, incrementEmailUsage } from '@/lib/quota'
 
 // Limite volontaire du premier import / de chaque synchro manuelle, pour
 // éviter une facture IA surprise et rester sous le timeout des fonctions
@@ -43,6 +44,25 @@ export async function POST() {
     return NextResponse.json({ ok: false, step: 'auth', error: 'unauthenticated' }, { status: 401 })
   }
   console.log(`[STEP] sync — utilisateur résolu (id=${user.id}, email=${user.email})`)
+
+  const quota = await checkEmailQuota(user.id)
+  if (!quota.allowed) {
+    console.log(
+      `[STEP] sync — quota d'emails atteint (plan=${quota.plan}, used=${quota.used}/${quota.limit}), synchro annulée`
+    )
+    return NextResponse.json(
+      {
+        ok: false,
+        step: 'quota_exceeded',
+        quotaType: 'emails',
+        plan: quota.plan,
+        limit: quota.limit,
+        used: quota.used,
+        error: 'quota_exceeded',
+      },
+      { status: 403 }
+    )
+  }
 
   let gmail: Awaited<ReturnType<typeof getGmailClientForUser>>
 
@@ -110,10 +130,24 @@ export async function POST() {
 
   let analyzedCount = 0
   const failedMessageIds: string[] = []
+  let quotaExceededDuringLoop = false
 
   for (const ref of newRefs) {
     if (!ref.id) continue
     const gmailMessageId = ref.id
+
+    // Re-vérifié à chaque itération (pas seulement avant la boucle) : un lot
+    // de 15 emails peut faire passer l'utilisateur au-delà de sa limite en
+    // cours de route. On arrête proprement dès que c'est le cas, plutôt que
+    // de continuer à consommer des appels IA au-delà du quota.
+    const loopQuota = await checkEmailQuota(user.id)
+    if (!loopQuota.allowed) {
+      console.log(
+        `[STEP] sync — quota atteint en cours de boucle (plan=${loopQuota.plan}, used=${loopQuota.used}/${loopQuota.limit}), arrêt anticipé`
+      )
+      quotaExceededDuringLoop = true
+      break
+    }
 
     console.log(`[STEP] traitement de l'email ${gmailMessageId} — démarrage`)
 
@@ -220,6 +254,7 @@ export async function POST() {
       }
 
       analyzedCount += 1
+      await incrementEmailUsage(user.id)
       console.log(`[STEP] traitement de l'email ${gmailMessageId} — terminé avec succès`)
     } catch (err) {
       console.error(`[ERROR] analyzeEmail(${gmailMessageId}) — échec`, err)
@@ -241,7 +276,7 @@ export async function POST() {
   }
 
   console.log(
-    `[STEP] sync — terminé. synced=${newRefs.length}, analyzed=${analyzedCount}, failed=${failedMessageIds.length}`
+    `[STEP] sync — terminé. synced=${newRefs.length}, analyzed=${analyzedCount}, failed=${failedMessageIds.length}, quotaExceeded=${quotaExceededDuringLoop}`
   )
 
   return NextResponse.json({
@@ -249,5 +284,6 @@ export async function POST() {
     synced: newRefs.length,
     analyzed: analyzedCount,
     failed: failedMessageIds,
+    quotaExceeded: quotaExceededDuringLoop,
   })
 }

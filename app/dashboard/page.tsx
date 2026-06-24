@@ -1,21 +1,33 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import Sidebar from '@/components/dashboard/Sidebar'
 import EmailList from '@/components/dashboard/EmailList'
 import EmailDetail from '@/components/dashboard/EmailDetail'
+import QuotaModal from '@/components/dashboard/QuotaModal'
 import { EmailWithDraft, Category, CATEGORY_STYLES } from '@/types/email'
+import { Plan } from '@/lib/quota'
+
+interface UsageData {
+  plan: Plan
+  emailsAnalyzedThisMonth: number
+  emailsLimit: number | null
+  prospectsDetected: number
+  minutesSaved: number
+}
 
 export default function DashboardPage() {
   const { data: session } = useSession()
   const [emails, setEmails] = useState<EmailWithDraft[]>([])
+  const [usage, setUsage] = useState<UsageData | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // 'all' = tous les emails (filtre par défaut du nouveau design), sinon une
   // valeur de Category ('Prospect', 'Client', ...).
   const [activeFilter, setActiveFilter] = useState<string>('all')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [quotaModalOpen, setQuotaModalOpen] = useState(false)
   // Pilote la bascule liste/détail en vue mobile (≤767px), comme dans le
   // nouveau design (classe .show-detail de la maquette d'origine).
   const [mobileShowDetail, setMobileShowDetail] = useState(false)
@@ -28,19 +40,73 @@ export default function DashboardPage() {
     }
   }, [])
 
-  useEffect(() => {
-    setLoading(true)
-    loadEmails().finally(() => setLoading(false))
-  }, [loadEmails])
+  const loadUsage = useCallback(async () => {
+    const res = await fetch('/api/usage')
+    const data: { ok: boolean } & Partial<UsageData> = await res.json()
+    if (data.ok) {
+      setUsage({
+        plan: data.plan || 'free',
+        emailsAnalyzedThisMonth: data.emailsAnalyzedThisMonth || 0,
+        emailsLimit: data.emailsLimit ?? null,
+        prospectsDetected: data.prospectsDetected || 0,
+        minutesSaved: data.minutesSaved || 0,
+      })
+    }
+  }, [])
 
-  async function handleRefresh() {
+  // Synchronise avec Gmail (classification, résumé, brouillon IA pour les
+  // nouveaux emails). Déclenchée automatiquement au chargement du dashboard
+  // ET par le bouton "Rafraîchir" — un seul chemin de code pour les deux,
+  // l'indicateur de chargement reste visible dans les deux cas plutôt que de
+  // masquer une vraie activité réseau/IA à l'utilisateur.
+  const syncWithGmail = useCallback(async () => {
     setRefreshing(true)
     try {
-      await fetch('/api/emails/sync', { method: 'POST' })
+      const res = await fetch('/api/emails/sync', { method: 'POST' })
+      if (res.status === 403) {
+        setQuotaModalOpen(true)
+        return
+      }
+      const data = await res.json().catch(() => null)
+      if (data?.quotaExceeded) {
+        setQuotaModalOpen(true)
+      }
       await loadEmails()
+      await loadUsage()
+    } catch (err) {
+      // Une synchronisation automatique qui échoue (réseau, Gmail
+      // indisponible...) ne doit jamais casser le dashboard : les emails déjà
+      // connus restent affichés, l'utilisateur peut retenter via le bouton
+      // "Rafraîchir" visible dans EmailList.
+      console.error('[dashboard] échec de la synchronisation Gmail', err)
     } finally {
       setRefreshing(false)
     }
+  }, [loadEmails, loadUsage])
+
+  // Empêche un double déclenchement de la synchro automatique si ce
+  // composant est remonté plusieurs fois rapidement (ex: navigation
+  // aller-retour entre /dashboard et /dashboard/settings) — une seule
+  // synchro automatique par montage réel du dashboard.
+  const autoSyncTriggeredRef = useRef(false)
+
+  useEffect(() => {
+    setLoading(true)
+    // 1. Affichage immédiat des emails déjà connus, sans attendre Gmail —
+    // l'utilisateur voit sa boîte tout de suite.
+    Promise.all([loadEmails(), loadUsage()]).finally(() => {
+      setLoading(false)
+      // 2. Synchronisation Gmail automatique en arrière-plan, sans clic :
+      // nouveaux emails classés, résumés et brouillons générés tout seuls.
+      if (!autoSyncTriggeredRef.current) {
+        autoSyncTriggeredRef.current = true
+        syncWithGmail()
+      }
+    })
+  }, [loadEmails, loadUsage, syncWithGmail])
+
+  async function handleRefresh() {
+    await syncWithGmail()
   }
 
   async function handleSend(emailId: string, finalContent: string) {
@@ -59,9 +125,14 @@ export default function DashboardPage() {
 
   async function handleRegenerate(emailId: string) {
     const res = await fetch(`/api/emails/${emailId}/draft`, { method: 'POST' })
+    if (res.status === 403) {
+      setQuotaModalOpen(true)
+      return
+    }
     const data = await res.json()
     if (data.ok) {
       await loadEmails()
+      await loadUsage()
     }
   }
 
@@ -132,9 +203,12 @@ export default function DashboardPage() {
             onSend={handleSend}
             onRegenerate={handleRegenerate}
             onBack={() => setMobileShowDetail(false)}
+            usage={usage}
           />
         </div>
       </div>
+
+      <QuotaModal open={quotaModalOpen} onClose={() => setQuotaModalOpen(false)} plan={usage?.plan} />
     </div>
   )
 }

@@ -41,7 +41,11 @@ explicitement), avec le même style visuel que la maquette d'origine.
 1. Créez un projet sur supabase.com
 2. Allez dans SQL Editor > New query, collez le contenu de
    supabase/schema.sql, exécutez
-3. Dans Project Settings > API, copiez l'URL du projet et la clé
+3. **Si le projet existait déjà avant la Phase 2 (abonnements/quotas)** :
+   exécutez aussi supabase/migration_002_plans_quotas.sql dans SQL Editor —
+   sans danger à rejouer plusieurs fois, ajoute les colonnes de plan et de
+   quota sur la table users sans toucher aux données existantes
+4. Dans Project Settings > API, copiez l'URL du projet et la clé
    service_role (jamais la clé anon pour ce backend — service_role
    contourne RLS et n'est utilisée que côté serveur)
 

@@ -1,8 +1,10 @@
-import Link from 'next/link'
+'use client'
+
+import { signIn } from 'next-auth/react'
 
 export default function LandingHero() {
   return (
-    <section className="relative z-10 max-w-[1080px] mx-auto px-10 pt-[90px] text-center">
+    <section className="relative z-10 max-w-[1080px] mx-auto px-10 pt-[90px] text-center max-md:px-5 max-md:pt-[60px]">
       <div
         data-reveal
         className="inline-flex items-center gap-[9px] px-4 py-[7px] rounded-full text-[13px] text-[#a3a09a] mb-10"
@@ -14,7 +16,7 @@ export default function LandingHero() {
 
       <h1
         data-reveal
-        className="font-display font-semibold text-[74px] leading-[1.05] tracking-[-0.035em] mx-auto max-w-[880px] text-[#f5f3ee]"
+        className="font-display font-semibold text-[74px] leading-[1.05] tracking-[-0.035em] mx-auto max-w-[880px] text-[#f5f3ee] max-md:text-[40px] max-md:leading-[1.15]"
       >
         L&apos;IA traite vos emails.
         <br />
@@ -24,29 +26,33 @@ export default function LandingHero() {
 
       <p
         data-reveal
-        className="text-[19px] leading-[1.6] text-[#9b9890] max-w-[560px] mx-auto mt-7"
+        className="text-[19px] leading-[1.6] text-[#9b9890] max-w-[620px] mx-auto mt-7 max-md:text-[16px]"
       >
-        CentralY analyse, classe et résume vos emails entrants, puis prépare une réponse
-        professionnelle. Rien n&apos;est envoyé sans votre accord.
+        Tri intelligent de votre boîte, brouillons rédigés par l&apos;IA, détection automatique
+        des prospects et suivi de chaque conversation — pour ne plus jamais repartir d&apos;une
+        page blanche.
       </p>
 
-      <div data-reveal className="flex items-center justify-center gap-[13px] mt-[38px]">
-        <Link
-          href="/dashboard"
-          className="text-[15.5px] font-semibold text-[#0a0a0a] bg-[#f5f3ee] px-[26px] py-[14px] rounded-full no-underline"
+      <div data-reveal className="flex items-center justify-center gap-[13px] mt-[38px] flex-wrap">
+        <button
+          onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+          className="text-[15.5px] font-semibold text-[#0a0a0a] bg-[#f5f3ee] px-[26px] py-[14px] rounded-full cursor-pointer border-none"
         >
           Essayer gratuitement
-        </Link>
+        </button>
         <a
           href="#dashboard"
           className="text-[15.5px] font-medium text-[#e7e5de] px-6 py-[14px] rounded-full no-underline"
           style={{ border: '1px solid rgba(245,243,238,0.16)' }}
         >
-          Réserver une démo
+          Voir le dashboard
         </a>
       </div>
+      <p data-reveal className="text-[13px] text-[#6a6862] mt-4">
+        Sans carte bancaire · Compatible Gmail
+      </p>
 
-      <div data-reveal className="relative mx-auto mt-[72px] max-w-[820px]">
+      <div data-reveal className="relative mx-auto mt-[72px] max-w-[820px] max-md:mt-12">
         <div
           className="relative rounded-[18px] bg-[#121211] overflow-hidden text-left animate-float"
           style={{
@@ -61,24 +67,24 @@ export default function LandingHero() {
             <div className="w-[11px] h-[11px] rounded-full bg-[#3a3a37]" />
             <div className="w-[11px] h-[11px] rounded-full bg-[#3a3a37]" />
             <div className="w-[11px] h-[11px] rounded-full bg-[#3a3a37]" />
-            <div className="ml-[14px] text-[12.5px] text-[#6a6862]">
+            <div className="ml-[14px] text-[12.5px] text-[#6a6862] truncate">
               CentralY — Boîte intelligente
             </div>
           </div>
-          <div className="p-6">
-            <div className="flex items-center gap-[13px] mb-[18px]">
-              <div className="w-[42px] h-[42px] rounded-full bg-[#26241f] flex items-center justify-center text-[#c9b896] font-bold text-sm">
+          <div className="p-6 max-md:p-4">
+            <div className="flex items-center gap-[13px] mb-[18px] flex-wrap">
+              <div className="w-[42px] h-[42px] rounded-full bg-[#26241f] flex items-center justify-center text-[#c9b896] font-bold text-sm flex-none">
                 MD
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="font-semibold text-[15px] text-[#f5f3ee]">Marie Dubois</div>
-                <div className="text-[12.5px] text-[#6a6862]">marie@acme.fr · il y a 2 min</div>
+                <div className="text-[12.5px] text-[#6a6862] truncate">marie@acme.fr · il y a 2 min</div>
               </div>
               <span
-                className="ml-auto text-[11.5px] font-semibold text-[#c9b896] px-[11px] py-1 rounded-full"
+                className="ml-auto text-[11.5px] font-semibold text-[#c9b896] px-[11px] py-1 rounded-full flex-none"
                 style={{ border: '1px solid rgba(201,184,150,0.35)' }}
               >
-                Commercial
+                Prospect
               </span>
             </div>
             <div className="font-semibold text-base mb-[18px] text-[#f5f3ee]">
@@ -92,8 +98,11 @@ export default function LandingHero() {
                 Devis demandé pour une commande trimestrielle récurrente. Budget validé. Réponse
                 attendue avant vendredi.
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex-1 px-[14px] py-3 rounded-[11px] bg-[#1b1a18] text-[13px] text-[#8c897f]" style={{ border: '1px solid rgba(245,243,238,0.08)' }}>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div
+                  className="flex-1 min-w-[140px] px-[14px] py-3 rounded-[11px] bg-[#1b1a18] text-[13px] text-[#8c897f] truncate"
+                  style={{ border: '1px solid rgba(245,243,238,0.08)' }}
+                >
                   Brouillon de réponse préparé…
                 </div>
                 <div className="px-5 py-3 rounded-[11px] bg-[#f5f3ee] text-[#0a0a0a] font-semibold text-[13.5px] whitespace-nowrap">

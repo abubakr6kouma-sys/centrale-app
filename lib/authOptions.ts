@@ -34,21 +34,46 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   session: { strategy: 'jwt' },
   callbacks: {
-    // Appelé à chaque connexion réussie : on enregistre / met à jour l'utilisateur
-    // et ses tokens Gmail chiffrés dans Supabase.
+    // Appelé à chaque connexion réussie côté Google. Deux responsabilités
+    // bien séparées ici, volontairement :
+    // 1. Valider que Google a bien renvoyé ce dont on a besoin (identité +
+    //    access_token) — un échec ici est un vrai motif de refus.
+    // 2. Persister l'utilisateur et ses tokens Gmail dans Supabase — un échec
+    //    ici est un problème d'infrastructure, PAS une raison de refuser la
+    //    connexion. Avant cette correction, toute panne Supabase (clé
+    //    d'environnement absente, RLS mal configuré, contrainte SQL,
+    //    timeout réseau...) se traduisait silencieusement par l'écran
+    //    "Access Denied" de NextAuth, sans aucune indication de la vraie
+    //    cause. On journalise désormais l'échec en détail et on laisse
+    //    l'utilisateur se connecter malgré tout : le pire cas possible est
+    //    alors une synchronisation Gmail qui échouera plus tard avec un
+    //    message clair, plutôt qu'un refus de connexion incompréhensible.
     async signIn({ user, account }) {
-      if (!account?.access_token || !user.email) return false
+      if (!account?.access_token) {
+        console.error('[auth] signIn refusé : aucun access_token renvoyé par Google', {
+          provider: account?.provider,
+        })
+        return false
+      }
+      if (!user.email) {
+        console.error('[auth] signIn refusé : aucun email renvoyé par Google')
+        return false
+      }
 
       try {
         const expiresAt = account.expires_at
           ? new Date(account.expires_at * 1000).toISOString()
           : null
 
-        const { data: existing } = await supabaseAdmin
+        const { data: existing, error: selectError } = await supabaseAdmin
           .from('users')
           .select('id, gmail_refresh_token')
           .eq('email', user.email)
           .maybeSingle()
+
+        if (selectError) {
+          throw selectError
+        }
 
         // Google ne renvoie un refresh_token qu'à la première autorisation
         // (ou quand prompt=consent force un nouveau consentement). On ne
@@ -67,18 +92,33 @@ export const authOptions: NextAuthOptions = {
         }
 
         if (existing) {
-          await supabaseAdmin.from('users').update(payload).eq('id', existing.id)
+          const { error: updateError } = await supabaseAdmin
+            .from('users')
+            .update(payload)
+            .eq('id', existing.id)
+          if (updateError) throw updateError
+          console.log('[auth] signIn — utilisateur existant mis à jour', { email: user.email })
         } else {
-          await supabaseAdmin.from('users').insert(payload)
+          const { error: insertError } = await supabaseAdmin.from('users').insert(payload)
+          if (insertError) throw insertError
+          console.log('[auth] signIn — nouvel utilisateur créé', { email: user.email })
         }
-
-        return true
       } catch (err) {
-        console.error('[auth] échec de la persistance utilisateur Supabase', err)
-        // On bloque la connexion plutôt que de laisser un utilisateur sans
-        // ligne en base, ce qui casserait silencieusement toute la suite.
-        return false
+        // Échec de la persistance Supabase : on journalise en détail pour
+        // pouvoir diagnostiquer (clé service_role manquante, RLS, contrainte
+        // SQL, réseau...), mais on NE bloque PAS la connexion Google pour
+        // autant. L'utilisateur authentifié légitimement par Google ne doit
+        // jamais voir "Access Denied" à cause d'un problème côté Supabase.
+        console.error(
+          '[auth] échec de la persistance Supabase pendant signIn (connexion autorisée malgré tout)',
+          {
+            email: user.email,
+            error: err instanceof Error ? err.message : err,
+          }
+        )
       }
+
+      return true
     },
     async jwt({ token, user }) {
       if (user?.email) token.email = user.email

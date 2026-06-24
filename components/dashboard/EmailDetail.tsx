@@ -9,6 +9,16 @@ import {
   avatarColorFromString,
   formatRelativeTime,
 } from '@/types/email'
+import UsageStats from '@/components/dashboard/UsageStats'
+import { Plan } from '@/lib/quota'
+
+interface UsageData {
+  plan: Plan
+  emailsAnalyzedThisMonth: number
+  emailsLimit: number | null
+  prospectsDetected: number
+  minutesSaved: number
+}
 
 interface EmailDetailProps {
   email: EmailWithDraft | null
@@ -16,9 +26,11 @@ interface EmailDetailProps {
   onRegenerate: (emailId: string) => Promise<void>
   /** Affiche le bouton "Retour à la liste" et le déclenche (mobile uniquement). */
   onBack?: () => void
+  /** Statistiques d'usage affichées dans l'écran d'accueil (aucun email sélectionné). */
+  usage?: UsageData | null
 }
 
-export default function EmailDetail({ email, onSend, onRegenerate, onBack }: EmailDetailProps) {
+export default function EmailDetail({ email, onSend, onRegenerate, onBack, usage }: EmailDetailProps) {
   const [draftText, setDraftText] = useState('')
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
@@ -49,7 +61,7 @@ export default function EmailDetail({ email, onSend, onRegenerate, onBack }: Ema
     if (email.draft) return
     // Une analyse est déjà en cours côté synchro pour cet email : on évite de
     // déclencher un deuxième appel IA en parallèle pour la même chose.
-    if (email.status === 'draft_ready') return
+    if (email.status === 'analyzing') return
 
     autoGenerationEmailId.current = email.id
     setAutoGenerating(true)
@@ -70,8 +82,19 @@ export default function EmailDetail({ email, onSend, onRegenerate, onBack }: Ema
 
   if (!email) {
     return (
-      <main className="flex-1 min-w-0 h-screen flex items-center justify-center bg-cream max-md:hidden">
-        <p className="text-faint text-sm">Sélectionnez un email pour voir le détail.</p>
+      <main className="flex-1 min-w-0 h-screen flex flex-col bg-cream max-md:hidden overflow-y-auto">
+        {usage && (
+          <UsageStats
+            plan={usage.plan}
+            emailsAnalyzedThisMonth={usage.emailsAnalyzedThisMonth}
+            emailsLimit={usage.emailsLimit}
+            prospectsDetected={usage.prospectsDetected}
+            minutesSaved={usage.minutesSaved}
+          />
+        )}
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-faint text-sm">Sélectionnez un email pour voir le détail.</p>
+        </div>
       </main>
     )
   }

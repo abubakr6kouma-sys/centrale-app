@@ -19,6 +19,18 @@ create table if not exists users (
   gmail_token_expires_at timestamptz,
   last_sync_history_id text,
   last_synced_at timestamptz,
+  -- Abonnement et quotas (Phase 2). Tout nouvel utilisateur démarre en
+  -- 'free'. Le paiement réel (PayPal) n'est pas encore branché : ces colonnes
+  -- existent pour que la logique de quota soit déjà fonctionnelle, et pour
+  -- qu'un changement de plan (manuel ou futur webhook PayPal) n'ait qu'à
+  -- mettre à jour une ligne existante plutôt qu'exiger une migration.
+  plan text not null default 'free' check (plan in ('free', 'pro', 'business')),
+  -- Compteurs remis à zéro chaque mois par reset_monthly_usage_if_needed()
+  -- (voir lib/quota.ts), pas par un cron — évite toute dépendance à un job
+  -- planifié externe pour une fonctionnalité qui doit rester simple en V1.
+  emails_analyzed_this_month integer not null default 0,
+  drafts_generated_this_month integer not null default 0,
+  usage_period_started_at timestamptz not null default now(),
   created_at timestamptz default now()
 );
 
