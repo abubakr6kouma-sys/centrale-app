@@ -27,7 +27,7 @@ export const CATEGORY_STYLES: Record<Category, CategoryStyle> = {
 // valeur de la base de données).
 export const CATEGORY_ORDER: Category[] = ['Prospect', 'Client', 'Support', 'Facture', 'Urgent', 'Autre']
 
-export type EmailStatus = 'new' | 'draft_ready' | 'replied' | 'archived'
+export type EmailStatus = 'new' | 'analyzing' | 'draft_ready' | 'replied' | 'archived'
 
 export interface EmailRecord {
   id: string
