@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { signIn } from 'next-auth/react'
+import { signIn, useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import { PLANS } from '@/lib/plans'
 import { PaymentMethod, PAYMENT_METHOD_LABELS } from '@/lib/payments/types'
 
@@ -19,6 +20,8 @@ interface PricingCardsProps {
 // composant active automatiquement son bouton, sans modification ici.
 export default function PricingCards({ variant = 'dark' }: PricingCardsProps) {
   const isDark = variant === 'dark'
+  const { status } = useSession()
+  const router = useRouter()
   const [configuredMethods, setConfiguredMethods] = useState<PaymentMethod[]>([])
 
   useEffect(() => {
@@ -99,7 +102,7 @@ export default function PricingCards({ variant = 'dark' }: PricingCardsProps) {
 
             {plan.id === 'free' ? (
               <button
-                onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+                onClick={() => status === 'authenticated' ? router.push('/dashboard') : signIn('google', { callbackUrl: '/dashboard' })}
                 className="mt-7 text-center text-[14.5px] font-semibold rounded-[11px] py-3 cursor-pointer border-none"
                 style={
                   plan.highlighted

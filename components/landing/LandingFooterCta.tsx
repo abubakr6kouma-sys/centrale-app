@@ -1,10 +1,22 @@
 'use client'
 
 import Link from 'next/link'
-import { signIn } from 'next-auth/react'
+import { signIn, useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import Logo from '@/components/Logo'
 
 export function LandingFinalCta() {
+  const { status } = useSession()
+  const router = useRouter()
+
+  function handleCTA() {
+    if (status === 'authenticated') {
+      router.push('/dashboard')
+    } else {
+      signIn('google', { callbackUrl: '/dashboard' })
+    }
+  }
+
   return (
     <section className="relative z-10 max-w-[900px] mx-auto px-10 mt-[180px] text-center max-md:px-5 max-md:mt-[100px]">
       <div data-reveal>
@@ -15,7 +27,7 @@ export function LandingFinalCta() {
         </h2>
         <div className="flex items-center justify-center gap-[13px] mt-[42px] flex-wrap">
           <button
-            onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+            onClick={handleCTA}
             className="text-base font-semibold text-[#0a0a0a] bg-[#f5f3ee] px-7 py-[15px] rounded-full cursor-pointer border-none"
           >
             Essayer gratuitement

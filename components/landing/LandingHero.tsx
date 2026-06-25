@@ -1,8 +1,20 @@
 'use client'
 
-import { signIn } from 'next-auth/react'
+import { signIn, useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 
 export default function LandingHero() {
+  const { status } = useSession()
+  const router = useRouter()
+
+  function handleCTA() {
+    if (status === 'authenticated') {
+      router.push('/dashboard')
+    } else {
+      signIn('google', { callbackUrl: '/dashboard' })
+    }
+  }
+
   return (
     <section className="relative z-10 max-w-[1080px] mx-auto px-10 pt-[90px] text-center max-md:px-5 max-md:pt-[60px]">
       <div
@@ -35,7 +47,7 @@ export default function LandingHero() {
 
       <div data-reveal className="flex items-center justify-center gap-[13px] mt-[38px] flex-wrap">
         <button
-          onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+          onClick={handleCTA}
           className="text-[15.5px] font-semibold text-[#0a0a0a] bg-[#f5f3ee] px-[26px] py-[14px] rounded-full cursor-pointer border-none"
         >
           Essayer gratuitement
