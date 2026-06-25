@@ -10,7 +10,7 @@ import {
   formatRelativeTime,
 } from '@/types/email'
 import UsageStats from '@/components/dashboard/UsageStats'
-import { Plan } from '@/lib/quota'
+import { Plan } from '@/lib/planTypes'
 
 interface UsageData {
   plan: Plan

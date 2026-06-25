@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import SidebarFrame from '@/components/dashboard/SidebarFrame'
 import PricingCards from '@/components/PricingCards'
-import { PLAN_LABELS, Plan } from '@/lib/quota'
+import { PLAN_LABELS, Plan } from '@/lib/planTypes'
 
 interface UsageData {
   plan: Plan

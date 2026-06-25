@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Plan, PLAN_LABELS } from '@/lib/quota'
+import { Plan, PLAN_LABELS } from '@/lib/planTypes'
 
 interface QuotaModalProps {
   open: boolean

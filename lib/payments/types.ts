@@ -1,4 +1,4 @@
-import { Plan } from '@/lib/quota'
+import { Plan } from '@/lib/planTypes'
 
 // ============================================================
 // Contrat commun à tous les fournisseurs de paiement.

@@ -1,6 +1,6 @@
 'use client'
 
-import { PLAN_LABELS, Plan } from '@/lib/quota'
+import { PLAN_LABELS, Plan } from '@/lib/planTypes'
 
 interface UsageStatsProps {
   plan: Plan

@@ -1,4 +1,4 @@
-import { Plan } from '@/lib/quota'
+import { Plan } from '@/lib/planTypes'
 
 export interface PlanDefinition {
   id: Plan

@@ -1,26 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-
-export type Plan = 'free' | 'pro' | 'business'
-
-export interface PlanLimits {
-  emailsPerMonth: number | null // null = illimité
-  draftsPerMonth: number | null
-}
-
-// Source unique des limites par plan — réutilisée par la logique de quota
-// (lib/quota.ts), la page Tarifs et la modale de quota atteint, pour ne
-// jamais avoir deux endroits différents qui se désynchronisent sur un chiffre.
-export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
-  free: { emailsPerMonth: 50, draftsPerMonth: 10 },
-  pro: { emailsPerMonth: 1000, draftsPerMonth: null },
-  business: { emailsPerMonth: 5000, draftsPerMonth: null },
-}
-
-export const PLAN_LABELS: Record<Plan, string> = {
-  free: 'Gratuit',
-  pro: 'Pro',
-  business: 'Business',
-}
+import type { Plan, PlanLimits } from '@/lib/planTypes'
+import { PLAN_LIMITS, PLAN_LABELS } from '@/lib/planTypes'
+export type { Plan, PlanLimits }
+export { PLAN_LIMITS, PLAN_LABELS }
 
 export interface UsageRow {
   id: string

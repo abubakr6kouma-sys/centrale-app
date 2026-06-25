@@ -7,7 +7,7 @@ import EmailList from '@/components/dashboard/EmailList'
 import EmailDetail from '@/components/dashboard/EmailDetail'
 import QuotaModal from '@/components/dashboard/QuotaModal'
 import { EmailWithDraft, Category, CATEGORY_STYLES } from '@/types/email'
-import { Plan } from '@/lib/quota'
+import { Plan } from '@/lib/planTypes'
 
 interface UsageData {
   plan: Plan
