@@ -33,24 +33,32 @@ export default function DashboardPage() {
   const [mobileShowDetail, setMobileShowDetail] = useState(false)
 
   const loadEmails = useCallback(async () => {
-    const res = await fetch('/api/emails')
-    const data: { ok: boolean; emails?: EmailWithDraft[] } = await res.json()
-    if (data.ok && data.emails) {
-      setEmails(data.emails)
+    try {
+      const res = await fetch('/api/emails')
+      const data: { ok: boolean; emails?: EmailWithDraft[] } = await res.json()
+      if (data.ok && data.emails) {
+        setEmails(data.emails)
+      }
+    } catch (err) {
+      console.error('[dashboard] loadEmails failed', err)
     }
   }, [])
 
   const loadUsage = useCallback(async () => {
-    const res = await fetch('/api/usage')
-    const data: { ok: boolean } & Partial<UsageData> = await res.json()
-    if (data.ok) {
-      setUsage({
-        plan: data.plan || 'free',
-        emailsAnalyzedThisMonth: data.emailsAnalyzedThisMonth || 0,
-        emailsLimit: data.emailsLimit ?? null,
-        prospectsDetected: data.prospectsDetected || 0,
-        minutesSaved: data.minutesSaved || 0,
-      })
+    try {
+      const res = await fetch('/api/usage')
+      const data: { ok: boolean } & Partial<UsageData> = await res.json()
+      if (data.ok) {
+        setUsage({
+          plan: data.plan || 'free',
+          emailsAnalyzedThisMonth: data.emailsAnalyzedThisMonth || 0,
+          emailsLimit: data.emailsLimit ?? null,
+          prospectsDetected: data.prospectsDetected || 0,
+          minutesSaved: data.minutesSaved || 0,
+        })
+      }
+    } catch (err) {
+      console.error('[dashboard] loadUsage failed', err)
     }
   }, [])
 
@@ -94,15 +102,17 @@ export default function DashboardPage() {
     setLoading(true)
     // 1. Affichage immédiat des emails déjà connus, sans attendre Gmail —
     // l'utilisateur voit sa boîte tout de suite.
-    Promise.all([loadEmails(), loadUsage()]).finally(() => {
-      setLoading(false)
-      // 2. Synchronisation Gmail automatique en arrière-plan, sans clic :
-      // nouveaux emails classés, résumés et brouillons générés tout seuls.
-      if (!autoSyncTriggeredRef.current) {
-        autoSyncTriggeredRef.current = true
-        syncWithGmail()
-      }
-    })
+    Promise.all([loadEmails(), loadUsage()])
+      .catch((err) => console.error('[dashboard] initial load failed', err))
+      .finally(() => {
+        setLoading(false)
+        // 2. Synchronisation Gmail automatique en arrière-plan, sans clic :
+        // nouveaux emails classés, résumés et brouillons générés tout seuls.
+        if (!autoSyncTriggeredRef.current) {
+          autoSyncTriggeredRef.current = true
+          syncWithGmail()
+        }
+      })
   }, [loadEmails, loadUsage, syncWithGmail])
 
   async function handleRefresh() {
