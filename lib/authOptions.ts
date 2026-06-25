@@ -17,6 +17,15 @@ const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
 ].join(' ')
 
+const SESSION_MAX_AGE = 30 * 24 * 60 * 60 // 30 days in seconds
+
+// NextAuth only sets Expires (absolute date) on the session cookie by default.
+// Safari on macOS/iOS sometimes treats such cookies as session-only and clears
+// them on full quit. Setting Max-Age explicitly forces the browser to honor a
+// relative expiry and guarantees the cookie survives browser restarts.
+const useSecureCookies = process.env.NEXTAUTH_URL?.startsWith('https://')
+const cookiePrefix = useSecureCookies ? '__Secure-' : ''
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -32,7 +41,19 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET,
-  session: { strategy: 'jwt' },
+  session: { strategy: 'jwt', maxAge: SESSION_MAX_AGE },
+  cookies: {
+    sessionToken: {
+      name: `${cookiePrefix}next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: !!useSecureCookies,
+        maxAge: SESSION_MAX_AGE,
+      },
+    },
+  },
   callbacks: {
     // Appelé à chaque connexion réussie côté Google. Deux responsabilités
     // bien séparées ici, volontairement :

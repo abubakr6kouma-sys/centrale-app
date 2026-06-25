@@ -1,3 +1,6 @@
+import { getServerSession } from 'next-auth'
+import { redirect } from 'next/navigation'
+import { authOptions } from '@/lib/authOptions'
 import LandingNav from '@/components/landing/LandingNav'
 import LandingHero from '@/components/landing/LandingHero'
 import LandingFeatures from '@/components/landing/LandingFeatures'
@@ -7,19 +10,16 @@ import LandingHumanControl from '@/components/landing/LandingHumanControl'
 import LandingPricing from '@/components/landing/LandingPricing'
 import { LandingFinalCta, LandingFooter } from '@/components/landing/LandingFooterCta'
 import ScrollReveal from '@/components/landing/ScrollReveal'
-import AuthRedirect from '@/components/landing/AuthRedirect'
 
-// Page racine de l'application : la Landing remplace désormais l'ancien
-// écran "Entry" (logo animé, bouton Enter). Parcours utilisateur demandé :
-// Landing (/) → Connexion Google → Dashboard (/dashboard). Le bouton
-// "Essayer gratuitement" (dans LandingNav et LandingHero) déclenche
-// directement signIn('google'), sans étape intermédiaire. Un utilisateur
-// déjà connecté qui revient sur cette page est redirigé automatiquement
-// vers /dashboard par AuthRedirect (comportement repris de l'ancien Entry).
-export default function HomePage() {
+// Page racine : si l'utilisateur est déjà connecté on le redirige côté
+// serveur avant que React ne monte, ce qui évite le flash de la landing et
+// tout problème de timing avec useSession().
+export default async function HomePage() {
+  const session = await getServerSession(authOptions)
+  if (session) redirect('/dashboard')
+
   return (
     <div className="font-sans bg-[#0a0a0a] text-[#f5f3ee] overflow-hidden relative">
-      <AuthRedirect />
       <ScrollReveal />
 
       <div
