@@ -23,7 +23,7 @@ interface UsageData {
 interface EmailDetailProps {
   email: EmailWithDraft | null
   onSend: (emailId: string, finalContent: string) => Promise<void>
-  onRegenerate: (emailId: string) => Promise<void>
+  onRegenerate: (emailId: string, intention?: string, instruction?: string) => Promise<void>
   /** Affiche le bouton "Retour à la liste" et le déclenche (mobile uniquement). */
   onBack?: () => void
   /** Statistiques d'usage affichées dans l'écran d'accueil (aucun email sélectionné). */
@@ -34,49 +34,39 @@ export default function EmailDetail({ email, onSend, onRegenerate, onBack, usage
   const [draftText, setDraftText] = useState('')
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
-  // "regenerating" = l'utilisateur a cliqué sur le bouton Régénérer (remplace
-  // un brouillon déjà existant par une nouvelle version).
+  // "regenerating" = brouillon en cours de recréation (intention, personnalisation ou remplacement).
   const [regenerating, setRegenerating] = useState(false)
-  // "autoGenerating" = première génération automatique à l'ouverture d'un
-  // email qui n'a encore aucun brouillon. Volontairement séparé de
-  // `regenerating` : ce sont deux déclencheurs différents, et on ne veut
-  // jamais que l'un affiche le texte/état de l'autre.
+  // "autoGenerating" = première génération automatique à l'ouverture d'un email sans brouillon.
   const [autoGenerating, setAutoGenerating] = useState(false)
+  // Mode personnalisation : affiche le champ de saisie libre.
+  const [customizeMode, setCustomizeMode] = useState(false)
+  const [customizeText, setCustomizeText] = useState('')
 
-  // Empêche un résultat de génération automatique arrivé en retard (l'IA a
-  // mis quelques secondes) d'écraser l'écran si l'utilisateur a déjà changé
-  // d'email entre-temps : on ne déclenche/affiche la génération auto que pour
-  // l'email réellement affiché au moment où la réponse revient.
+  // Empêche un résultat de génération automatique arrivé en retard d'écraser
+  // l'écran si l'utilisateur a changé d'email entre-temps.
   const autoGenerationEmailId = useRef<string | null>(null)
 
   useEffect(() => {
     setSent(false)
     setDraftText(email?.draft?.ai_generated_content || '')
+    setCustomizeMode(false)
+    setCustomizeText('')
   }, [email?.id, email?.draft?.ai_generated_content])
 
   useEffect(() => {
     if (!email) return
-    // Un brouillon existe déjà (généré par la synchro en arrière-plan ou par
-    // une régénération précédente) : rien à faire automatiquement.
     if (email.draft) return
-    // Une analyse est déjà en cours côté synchro pour cet email : on évite de
-    // déclencher un deuxième appel IA en parallèle pour la même chose.
     if (email.status === 'analyzing') return
 
     autoGenerationEmailId.current = email.id
     setAutoGenerating(true)
 
     onRegenerate(email.id).finally(() => {
-      // Si l'utilisateur a changé d'email pendant l'appel, on ne touche plus
-      // à l'état "chargement" : il ne correspond plus à l'email affiché.
       if (autoGenerationEmailId.current === email.id) {
         setAutoGenerating(false)
       }
     })
 
-    // Volontairement déclenché uniquement par l'identité de l'email et la
-    // présence ou non d'un brouillon — pas par onRegenerate, qui change de
-    // référence à chaque rendu du parent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email?.id, email?.draft])
 
@@ -115,13 +105,23 @@ export default function EmailDetail({ email, onSend, onRegenerate, onBack, usage
     }
   }
 
-  async function handleRegenerate() {
-    // "Régénérer" sert uniquement à créer une nouvelle version d'un brouillon
-    // existant — jamais à déclencher la génération automatique initiale, qui
-    // est gérée par le useEffect ci-dessus.
+  async function handleIntention(intention: string) {
     setRegenerating(true)
     try {
-      await onRegenerate(email!.id)
+      await onRegenerate(email!.id, intention)
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  async function handleCustomize() {
+    const text = customizeText.trim()
+    if (!text) return
+    setCustomizeMode(false)
+    setCustomizeText('')
+    setRegenerating(true)
+    try {
+      await onRegenerate(email!.id, undefined, text)
     } finally {
       setRegenerating(false)
     }
@@ -231,16 +231,64 @@ export default function EmailDetail({ email, onSend, onRegenerate, onBack, usage
             <span className="text-[11.5px] font-semibold text-gold-text bg-gold-bg px-[9px] py-0.5 rounded-md flex-none whitespace-nowrap">
               Généré par l&apos;IA
             </span>
-            <button
-              onClick={handleRegenerate}
-              disabled={regenerating || autoGenerating || isReady || !email.draft}
-              className="ml-auto text-[12.5px] text-muted cursor-pointer bg-transparent border border-line rounded-[8px] px-3 py-[6px] font-semibold disabled:opacity-50 flex-none whitespace-nowrap inline-flex items-center gap-[6px]"
-            >
-              {regenerating ? 'Régénération…' : '↻ Régénérer'}
-            </button>
           </div>
 
-          {autoGenerating ? (
+          {/* Intention buttons — visible only when a draft exists and is not sent */}
+          {!isReady && !isGeneratingDraft && email.draft && (
+            <div className="px-6 py-[14px] border-b border-linelight bg-[#faf9f5]">
+              {customizeMode ? (
+                <div className="flex items-center gap-[8px]">
+                  <input
+                    autoFocus
+                    value={customizeText}
+                    onChange={(e) => setCustomizeText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && customizeText.trim()) handleCustomize() }}
+                    placeholder="Ex : Refuse plus poliment, sois plus direct…"
+                    className="flex-1 min-w-0 text-[13.5px] text-ink bg-[#f6f3ec] border border-[#ddd6c9] rounded-[9px] px-[14px] py-[8px] outline-none focus:border-[#c9b896] placeholder:text-faint"
+                  />
+                  <button
+                    onClick={handleCustomize}
+                    disabled={!customizeText.trim()}
+                    className="text-[13px] font-semibold text-cream bg-[#0a0a0a] border-none px-[14px] py-[8px] rounded-[9px] cursor-pointer disabled:opacity-40 whitespace-nowrap"
+                  >
+                    Appliquer
+                  </button>
+                  <button
+                    onClick={() => { setCustomizeMode(false); setCustomizeText('') }}
+                    className="text-[13px] text-muted bg-transparent border border-[#ddd6c9] px-[10px] py-[8px] rounded-[9px] cursor-pointer leading-none"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-[8px]">
+                  {(
+                    [
+                      { id: 'accept', label: '✅ Accepter' },
+                      { id: 'refuse', label: '❌ Refuser' },
+                      { id: 'clarify', label: '❓ Précisions' },
+                    ] as const
+                  ).map(({ id, label }) => (
+                    <button
+                      key={id}
+                      onClick={() => handleIntention(id)}
+                      className="text-[12.5px] font-semibold px-[12px] py-[7px] rounded-[8px] border border-[#ddd6c9] bg-white text-ink cursor-pointer whitespace-nowrap hover:bg-[#f6f3ec] transition-colors"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setCustomizeMode(true)}
+                    className="text-[12.5px] font-semibold px-[12px] py-[7px] rounded-[8px] border border-[#ddd6c9] bg-white text-ink cursor-pointer whitespace-nowrap hover:bg-[#f6f3ec] transition-colors"
+                  >
+                    ✍️ Personnaliser
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isGeneratingDraft ? (
             <div className="px-6 py-10 flex flex-col items-center justify-center gap-3 text-center">
               <span
                 className="w-5 h-5 rounded-full border-2 border-line border-t-[#b08968] animate-spin flex-none"

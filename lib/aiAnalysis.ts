@@ -14,7 +14,7 @@ export interface EmailAnalysis {
 const VALID_CATEGORIES = ['Prospect', 'Client', 'Support', 'Facture', 'Urgent', 'Autre']
 const VALID_PRIORITIES = ['haute', 'normale', 'basse']
 
-const SYSTEM_PROMPT = `Tu es l'assistant d'analyse d'emails de CentralY, un outil destiné aux entreprises, agences et commerçants francophones.
+const SYSTEM_PROMPT = `Tu es l'assistant d'analyse d'emails de CentralY, un outil destiné aux entreprises, agences et commerçants.
 
 Pour chaque email reçu, tu dois :
 1. Le classer dans EXACTEMENT une de ces catégories : Prospect, Client, Support, Facture, Urgent, Autre.
@@ -26,7 +26,7 @@ Pour chaque email reçu, tu dois :
    - Autre : tout le reste (newsletters, notifications automatiques, spam probable, etc.)
 2. Évaluer une priorité : haute, normale ou basse.
 3. Rédiger un résumé en une à deux phrases, factuel, en français, qui permet de comprendre l'email sans le lire.
-4. Rédiger un brouillon de réponse professionnel en français, adapté au contexte, ton courtois et direct, prêt à être relu et envoyé tel quel ou après modification. Le brouillon doit être signé de façon neutre (ne pas inventer de nom si l'expéditeur de la réponse n'est pas connu — termine simplement par une formule de politesse sans nom).
+4. Détecter automatiquement la langue de l'email reçu et rédiger le brouillon de réponse DANS CETTE MÊME LANGUE (français si l'email est en français, anglais si en anglais, espagnol si en espagnol, etc.). Le brouillon doit être professionnel, adapté au contexte, ton courtois et direct, prêt à être relu et envoyé tel quel ou après modification. Le brouillon doit être signé de façon neutre (ne pas inventer de nom si l'expéditeur de la réponse n'est pas connu — termine simplement par une formule de politesse sans nom).
 
 Réponds UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après, sans balises markdown, au format exact :
 {"category": "...", "priority": "...", "summary": "...", "draft": "..."}`
@@ -58,6 +58,66 @@ export async function analyzeEmail(params: {
   }
 
   return parseAnalysisResponse(textBlock.text)
+}
+
+const INTENTION_PROMPTS: Record<string, string> = {
+  accept: "L'utilisateur souhaite ACCEPTER la demande ou la proposition de l'expéditeur.",
+  refuse: "L'utilisateur souhaite REFUSER poliment la demande ou la proposition de l'expéditeur.",
+  clarify: "L'utilisateur souhaite DEMANDER DES PRÉCISIONS à l'expéditeur avant de répondre définitivement.",
+}
+
+export async function customizeDraft(params: {
+  subject: string | null
+  senderName: string | null
+  senderEmail: string
+  bodyText: string
+  currentDraft: string
+  intention?: string
+  instruction?: string
+}): Promise<string> {
+  const intentionText = params.intention ? INTENTION_PROMPTS[params.intention] ?? '' : ''
+  const instructionText = params.instruction
+    ? `L'utilisateur donne cette consigne de réécriture : "${params.instruction}"`
+    : ''
+
+  const systemPrompt = [
+    "Tu es l'assistant de rédaction d'emails de CentralY.",
+    "Réécris le brouillon de réponse fourni en tenant compte des instructions ci-dessous.",
+    "Détecte la langue de l'email reçu et réponds OBLIGATOIREMENT dans cette même langue.",
+    intentionText,
+    instructionText,
+    "Conserve un ton professionnel, courtois et direct.",
+    "Termine par une formule de politesse neutre, sans inventer de nom.",
+    "Réponds UNIQUEMENT avec le texte du brouillon révisé, sans explication ni commentaire.",
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const userContent = [
+    'Email reçu :',
+    `Expéditeur : ${params.senderName || params.senderEmail} <${params.senderEmail}>`,
+    `Sujet : ${params.subject || '(sans objet)'}`,
+    '',
+    'Corps du message :',
+    params.bodyText.slice(0, 4000),
+    '',
+    'Brouillon actuel à réviser :',
+    params.currentDraft,
+  ].join('\n')
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 800,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userContent }],
+  })
+
+  const textBlock = response.content.find((b) => b.type === 'text')
+  if (!textBlock || textBlock.type !== 'text') {
+    throw new Error('Réponse IA vide ou inattendue.')
+  }
+
+  return textBlock.text.trim()
 }
 
 function parseAnalysisResponse(raw: string): EmailAnalysis {

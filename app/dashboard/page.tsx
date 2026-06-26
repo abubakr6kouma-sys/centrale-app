@@ -133,8 +133,16 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleRegenerate(emailId: string) {
-    const res = await fetch(`/api/emails/${emailId}/draft`, { method: 'POST' })
+  async function handleRegenerate(emailId: string, intention?: string, instruction?: string) {
+    const payload: Record<string, string> = {}
+    if (intention) payload.intention = intention
+    if (instruction) payload.instruction = instruction
+
+    const res = await fetch(`/api/emails/${emailId}/draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
     if (res.status === 403) {
       setQuotaModalOpen(true)
       return

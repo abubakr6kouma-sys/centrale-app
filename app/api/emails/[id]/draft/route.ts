@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/currentUser'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { analyzeEmail } from '@/lib/aiAnalysis'
+import { analyzeEmail, customizeDraft } from '@/lib/aiAnalysis'
 import { checkDraftQuota, incrementDraftUsage } from '@/lib/quota'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -25,6 +25,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     )
   }
 
+  // Optional customization params (intention or free-text instruction)
+  const body = await req.json().catch(() => ({}))
+  const { intention, instruction } = body as { intention?: string; instruction?: string }
+
   const { data: email, error } = await supabaseAdmin
     .from('emails')
     .select('*, drafts(*)')
@@ -46,38 +50,68 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   try {
-    const analysis = await analyzeEmail({
-      subject: emailRow.subject,
-      senderName: emailRow.sender_name,
-      senderEmail: emailRow.sender_email,
-      bodyText: emailRow.body_full || emailRow.body_preview || '',
-    })
+    let draftContent: string
 
-    await supabaseAdmin
-      .from('emails')
-      .update({
-        category: analysis.category,
-        priority: analysis.priority,
-        summary: analysis.summary,
-        status: analysis.draft ? 'draft_ready' : 'new',
+    if (intention || instruction) {
+      // Guided customization: only rewrite the draft, keep existing classification/summary
+      draftContent = await customizeDraft({
+        subject: emailRow.subject,
+        senderName: emailRow.sender_name,
+        senderEmail: emailRow.sender_email,
+        bodyText: emailRow.body_full || emailRow.body_preview || '',
+        currentDraft: existingDraft?.ai_generated_content || '',
+        intention,
+        instruction,
       })
-      .eq('id', emailRow.id)
 
-    if (existingDraft) {
-      await supabaseAdmin
-        .from('drafts')
-        .update({ ai_generated_content: analysis.draft })
-        .eq('id', existingDraft.id)
+      if (existingDraft) {
+        await supabaseAdmin
+          .from('drafts')
+          .update({ ai_generated_content: draftContent })
+          .eq('id', existingDraft.id)
+      } else {
+        await supabaseAdmin.from('drafts').insert({
+          email_id: emailRow.id,
+          ai_generated_content: draftContent,
+        })
+      }
     } else {
-      await supabaseAdmin.from('drafts').insert({
-        email_id: emailRow.id,
-        ai_generated_content: analysis.draft,
+      // Full regeneration: reclassify + new draft
+      const analysis = await analyzeEmail({
+        subject: emailRow.subject,
+        senderName: emailRow.sender_name,
+        senderEmail: emailRow.sender_email,
+        bodyText: emailRow.body_full || emailRow.body_preview || '',
       })
+
+      draftContent = analysis.draft
+
+      await supabaseAdmin
+        .from('emails')
+        .update({
+          category: analysis.category,
+          priority: analysis.priority,
+          summary: analysis.summary,
+          status: analysis.draft ? 'draft_ready' : 'new',
+        })
+        .eq('id', emailRow.id)
+
+      if (existingDraft) {
+        await supabaseAdmin
+          .from('drafts')
+          .update({ ai_generated_content: draftContent })
+          .eq('id', existingDraft.id)
+      } else {
+        await supabaseAdmin.from('drafts').insert({
+          email_id: emailRow.id,
+          ai_generated_content: draftContent,
+        })
+      }
     }
 
     await incrementDraftUsage(user.id)
 
-    return NextResponse.json({ ok: true, draft: analysis.draft, summary: analysis.summary })
+    return NextResponse.json({ ok: true, draft: draftContent })
   } catch (err) {
     console.error('[draft] échec de régénération', err)
     return NextResponse.json({ ok: false, error: 'ai_failed' }, { status: 500 })
