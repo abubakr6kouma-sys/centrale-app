@@ -66,6 +66,15 @@ export function LandingFooter() {
         <Link href="/contact" className="text-[13px] text-[#9b9890] no-underline">
           Contact
         </Link>
+        <Link href="/privacy" className="text-[13px] text-[#9b9890] no-underline">
+          Confidentialité
+        </Link>
+        <Link href="/terms" className="text-[13px] text-[#9b9890] no-underline">
+          CGU
+        </Link>
+        <Link href="/data-deletion" className="text-[13px] text-[#9b9890] no-underline">
+          Suppression
+        </Link>
       </div>
 
       <div className="text-[13px] text-[#6a6862]">© 2026 CentralY AI</div>
