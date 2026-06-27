@@ -72,9 +72,21 @@ export default function SidebarFrame({ userName, userEmail, activeLink, children
         </Link>
       </div>
 
+      <div className="mt-auto mb-3 flex flex-col gap-[1px] max-lg:hidden">
+        <Link href="/contact" className="text-[11.5px] text-faint px-[11px] py-[5px] rounded-md no-underline hover:text-muted transition-colors">
+          Contact & support
+        </Link>
+        <Link href="/privacy" className="text-[11.5px] text-faint px-[11px] py-[5px] rounded-md no-underline hover:text-muted transition-colors">
+          Confidentialité
+        </Link>
+        <Link href="/data-deletion" className="text-[11.5px] text-faint px-[11px] py-[5px] rounded-md no-underline hover:text-muted transition-colors">
+          Supprimer mon compte
+        </Link>
+      </div>
+
       <button
         onClick={() => signOut({ callbackUrl: '/' })}
-        className="mt-auto flex items-center gap-[10px] p-[10px] rounded-[10px] bg-white border border-line text-left cursor-pointer max-lg:hidden"
+        className="flex items-center gap-[10px] p-[10px] rounded-[10px] bg-white border border-line text-left cursor-pointer max-lg:hidden"
       >
         <div className="w-8 h-8 rounded-full bg-[#2a2a26] flex items-center justify-center text-white font-bold text-[13px] flex-none">
           {initials || '?'}
