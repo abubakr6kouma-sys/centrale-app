@@ -2,33 +2,44 @@
 
 import { useEffect, useState } from 'react'
 
-// Detects whether stored body_full is HTML (new emails) or plain text (old emails)
+// Detects whether stored body_full is HTML (new/backfilled emails) or plain text (old emails)
 function isHtmlContent(content: string): boolean {
   const t = content.trimStart().slice(0, 500)
   return t.startsWith('<') && /<(html|body|div|table|tr|td|p\b|br\b|span|a\b|img\b|h[1-6]|ul|ol|li|strong|em|font)[^>]*>/i.test(t)
 }
 
-// Plain-text → split on URLs and return alternating text / link nodes
-function renderPlainText(text: string) {
-  const urlRegex = /(https?:\/\/[^\s<>"]+[^\s<>".,!?;:)]+)/g
-  const parts = text.split(urlRegex)
-  return parts.map((part, i) => {
-    if (urlRegex.test(part)) {
-      const display = part.length > 55 ? part.slice(0, 52) + '…' : part
-      return (
-        <a
-          key={i}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[#8a6648] underline break-all"
-        >
-          {display}
-        </a>
-      )
+// Splits plain text on URLs and returns alternating text/link React nodes
+function renderPlainText(text: string): React.ReactNode[] {
+  const urlRe = /https?:\/\/[^\s<>"]+[^\s<>".,!?;:)]+/g
+  const nodes: React.ReactNode[] = []
+  let lastIndex = 0
+  let m: RegExpExecArray | null
+
+  while ((m = urlRe.exec(text)) !== null) {
+    if (m.index > lastIndex) {
+      nodes.push(<span key={`t${lastIndex}`}>{text.slice(lastIndex, m.index)}</span>)
     }
-    return <span key={i}>{part}</span>
-  })
+    const url = m[0]
+    const display = url.length > 55 ? url.slice(0, 52) + '…' : url
+    nodes.push(
+      <a
+        key={`u${m.index}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[#8a6648] underline break-all"
+      >
+        {display}
+      </a>
+    )
+    lastIndex = m.index + url.length
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(<span key={`t${lastIndex}`}>{text.slice(lastIndex)}</span>)
+  }
+
+  return nodes
 }
 
 interface EmailBodyRendererProps {
@@ -46,7 +57,6 @@ export default function EmailBodyRenderer({ content }: EmailBodyRendererProps) {
     import('dompurify').then(({ default: DOMPurify }) => {
       if (cancelled) return
 
-      // Add target=_blank to all links before sanitizing
       DOMPurify.addHook('afterSanitizeAttributes', (node) => {
         if (node.tagName === 'A') {
           node.setAttribute('target', '_blank')

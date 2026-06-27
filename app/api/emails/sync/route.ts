@@ -110,7 +110,7 @@ export async function POST() {
     console.log('[STEP] supabase — recherche des emails déjà connus')
     const { data: existingRows, error: existingError } = await supabaseAdmin
       .from('emails')
-      .select('gmail_message_id')
+      .select('id, gmail_message_id, body_full')
       .eq('user_id', user.id)
       .in('gmail_message_id', messageRefs.map((m) => m.id || ''))
 
@@ -120,6 +120,32 @@ export async function POST() {
 
     const existingIds = new Set((existingRows || []).map((r) => r.gmail_message_id))
     newRefs = messageRefs.filter((m) => m.id && !existingIds.has(m.id))
+
+    // Backfill HTML bodies for existing emails that only have plain text stored
+    const needsHtmlBackfill = (existingRows || []).filter(
+      (r) => !r.body_full?.trimStart().startsWith('<')
+    )
+    if (needsHtmlBackfill.length > 0) {
+      console.log(`[STEP] supabase — ${needsHtmlBackfill.length} email(s) à migrer vers HTML`)
+      for (const row of needsHtmlBackfill.slice(0, 10)) {
+        try {
+          const full = await withRetry(
+            () => gmail.users.messages.get({ userId: 'me', id: row.gmail_message_id, format: 'full' }),
+            { label: `html-backfill(${row.gmail_message_id})` }
+          )
+          const reparsed = parseGmailMessage(full.data)
+          if (reparsed.bodyHtml) {
+            await supabaseAdmin
+              .from('emails')
+              .update({ body_full: reparsed.bodyHtml })
+              .eq('id', row.id)
+          }
+        } catch {
+          // Non-blocking: skip this email if re-fetch fails
+        }
+      }
+    }
+
     console.log(
       `[STEP] supabase — ${existingIds.size} email(s) déjà connus, ${newRefs.length} nouveau(x) à traiter`
     )
