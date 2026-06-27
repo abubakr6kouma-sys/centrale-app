@@ -1,6 +1,7 @@
 import LandingNav from '@/components/landing/LandingNav'
 import { LandingFooter } from '@/components/landing/LandingFooterCta'
 import ScrollReveal from '@/components/landing/ScrollReveal'
+import { SUPPORT_EMAIL } from '@/lib/siteConfig'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
@@ -183,6 +184,10 @@ export default function TermsPage() {
               Pour toute question relative aux présentes conditions, contactez-nous via notre{' '}
               <a href="/contact" className="text-[#c9b896] no-underline">
                 formulaire de contact
+              </a>
+              {' '}ou par email à{' '}
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="text-[#c9b896] no-underline">
+                {SUPPORT_EMAIL}
               </a>
               .
             </p>

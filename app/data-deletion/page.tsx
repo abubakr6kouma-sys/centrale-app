@@ -2,6 +2,7 @@ import LandingNav from '@/components/landing/LandingNav'
 import { LandingFooter } from '@/components/landing/LandingFooterCta'
 import ScrollReveal from '@/components/landing/ScrollReveal'
 import Link from 'next/link'
+import { SUPPORT_EMAIL } from '@/lib/siteConfig'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
@@ -114,6 +115,13 @@ export default function DataDeletionPage() {
                   page de contact
                 </a>{' '}
                 et précisez dans le message : « Suppression de compte — [votre adresse email] ».
+              </li>
+              <li>
+                <strong>Par email</strong> : envoyez votre demande directement à{' '}
+                <a href={`mailto:${SUPPORT_EMAIL}`} className="text-[#c9b896] no-underline">
+                  {SUPPORT_EMAIL}
+                </a>{' '}
+                en indiquant l&apos;adresse email associée à votre compte CentralY.
               </li>
               <li>
                 <strong>Révocation des accès Google</strong> : vous pouvez également révoquer
