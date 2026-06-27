@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/currentUser'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { analyzeEmail, customizeDraft } from '@/lib/aiAnalysis'
 import { checkDraftQuota, incrementDraftUsage } from '@/lib/quota'
+import { stripHtml } from '@/lib/gmailParser'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser()
@@ -54,11 +55,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (intention || instruction) {
       // Guided customization: only rewrite the draft, keep existing classification/summary
+      const rawBody = emailRow.body_full || emailRow.body_preview || ''
       draftContent = await customizeDraft({
         subject: emailRow.subject,
         senderName: emailRow.sender_name,
         senderEmail: emailRow.sender_email,
-        bodyText: emailRow.body_full || emailRow.body_preview || '',
+        bodyText: rawBody.trimStart().startsWith('<') ? stripHtml(rawBody) : rawBody,
         currentDraft: existingDraft?.ai_generated_content || '',
         intention,
         instruction,
@@ -77,11 +79,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     } else {
       // Full regeneration: reclassify + new draft
+      const rawBody2 = emailRow.body_full || emailRow.body_preview || ''
       const analysis = await analyzeEmail({
         subject: emailRow.subject,
         senderName: emailRow.sender_name,
         senderEmail: emailRow.sender_email,
-        bodyText: emailRow.body_full || emailRow.body_preview || '',
+        bodyText: rawBody2.trimStart().startsWith('<') ? stripHtml(rawBody2) : rawBody2,
       })
 
       draftContent = analysis.draft

@@ -11,6 +11,7 @@ import {
 } from '@/types/email'
 import UsageStats from '@/components/dashboard/UsageStats'
 import { Plan } from '@/lib/planTypes'
+import EmailBodyRenderer from '@/components/dashboard/EmailBodyRenderer'
 
 interface UsageData {
   plan: Plan
@@ -220,9 +221,7 @@ export default function EmailDetail({ email, onSend, onRegenerate, onBack, usage
           <div className="text-[11px] font-semibold text-faint tracking-[0.06em] mb-2">
             EMAIL ORIGINAL
           </div>
-          <p className="text-[13.5px] text-muted leading-[1.7] m-0 whitespace-pre-wrap [text-wrap:pretty] break-words">
-            {email.body_full || email.body_preview || 'Contenu indisponible.'}
-          </p>
+          <EmailBodyRenderer content={email.body_full || email.body_preview || 'Contenu indisponible.'} />
         </div>
 
         <div className="rounded-2xl bg-white border border-[#ebe7dd] shadow-[0_1px_3px_rgba(60,50,30,0.05)] overflow-hidden">

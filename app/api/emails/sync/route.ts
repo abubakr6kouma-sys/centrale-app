@@ -202,7 +202,7 @@ export async function POST() {
           sender_name: parsed.senderName,
           subject: parsed.subject,
           body_preview: parsed.bodyText.slice(0, 200),
-          body_full: parsed.bodyText,
+          body_full: parsed.bodyHtml ?? parsed.bodyText,
           received_at: parsed.receivedAt,
           status: 'analyzing',
         })

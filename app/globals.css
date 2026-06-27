@@ -21,3 +21,11 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Email HTML rendering — scoped to prevent bleed into dashboard styles */
+.email-html-body img { max-width: 100%; height: auto; display: block; }
+.email-html-body table { border-collapse: collapse; max-width: 100%; }
+.email-html-body td, .email-html-body th { max-width: 100%; word-break: break-word; }
+.email-html-body a { color: #8a6648; word-break: break-word; }
+.email-html-body p { margin: 0 0 0.6em; }
+.email-html-body * { max-width: 100%; box-sizing: border-box; }

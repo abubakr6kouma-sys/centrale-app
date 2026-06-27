@@ -6,7 +6,8 @@ export interface ParsedGmailMessage {
   senderName: string | null
   senderEmail: string
   subject: string | null
-  bodyText: string
+  bodyText: string      // stripped plain text — for AI analysis and list previews
+  bodyHtml: string | null  // raw HTML body — for display when available
   receivedAt: string
 }
 
@@ -37,20 +38,21 @@ function extractBody(part: gmail_v1.Schema$MessagePart | undefined): {
   }
 
   if (part.parts) {
+    let plain: string | null = null
+    let html: string | null = null
     for (const sub of part.parts) {
       const result = extractBody(sub)
-      if (result.plain) return result
+      if (result.plain && !plain) plain = result.plain
+      if (result.html && !html) html = result.html
+      if (plain && html) break
     }
-    for (const sub of part.parts) {
-      const result = extractBody(sub)
-      if (result.html) return result
-    }
+    return { plain, html }
   }
 
   return { plain: null, html: null }
 }
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -75,9 +77,8 @@ function parseSender(fromHeader: string | null): { name: string | null; email: s
   return { name: null, email: fromHeader.trim() }
 }
 
-// Tronque le corps stocké en base pour éviter qu'une signature HTML géante
-// ou un email-newsletter démesuré ne gonfle inutilement le stockage Supabase.
 const MAX_BODY_LENGTH = 6000
+const MAX_HTML_LENGTH = 80000
 
 export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedGmailMessage {
   const headers = message.payload?.headers
@@ -86,10 +87,15 @@ export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedGmail
   const dateHeader = getHeader(headers, 'Date')
 
   const { plain, html } = extractBody(message.payload)
+
+  // Plain text for AI analysis — stripped, size-capped
   let bodyText = plain || (html ? stripHtml(html) : '') || message.snippet || ''
   if (bodyText.length > MAX_BODY_LENGTH) {
     bodyText = bodyText.slice(0, MAX_BODY_LENGTH) + '…'
   }
+
+  // Raw HTML for display — kept when not too large (else fall back to plain text display)
+  const bodyHtml = html && html.length <= MAX_HTML_LENGTH ? html : null
 
   const receivedAt = dateHeader
     ? new Date(dateHeader).toISOString()
@@ -104,6 +110,7 @@ export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedGmail
     senderEmail,
     subject,
     bodyText,
+    bodyHtml,
     receivedAt,
   }
 }
