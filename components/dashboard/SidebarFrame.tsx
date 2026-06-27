@@ -72,14 +72,14 @@ export default function SidebarFrame({ userName, userEmail, activeLink, children
         </Link>
       </div>
 
-      <div className="mt-auto mb-3 flex flex-col gap-[1px] max-lg:hidden">
-        <Link href="/contact" className="text-[11.5px] text-faint px-[11px] py-[5px] rounded-md no-underline hover:text-muted transition-colors">
+      <div className="mt-auto pt-4 mb-3 flex flex-col gap-[1px] max-lg:hidden border-t border-line">
+        <Link href="/contact" className="text-[12px] text-muted px-[11px] py-[6px] rounded-md no-underline hover:bg-[#ebe7dd] transition-colors">
           Contact & support
         </Link>
-        <Link href="/privacy" className="text-[11.5px] text-faint px-[11px] py-[5px] rounded-md no-underline hover:text-muted transition-colors">
+        <Link href="/privacy" className="text-[12px] text-muted px-[11px] py-[6px] rounded-md no-underline hover:bg-[#ebe7dd] transition-colors">
           Confidentialité
         </Link>
-        <Link href="/data-deletion" className="text-[11.5px] text-faint px-[11px] py-[5px] rounded-md no-underline hover:text-muted transition-colors">
+        <Link href="/data-deletion" className="text-[12px] text-muted px-[11px] py-[6px] rounded-md no-underline hover:bg-[#ebe7dd] transition-colors">
           Supprimer mon compte
         </Link>
       </div>
