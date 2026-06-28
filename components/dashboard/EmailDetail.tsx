@@ -221,7 +221,10 @@ export default function EmailDetail({ email, onSend, onRegenerate, onBack, usage
           <div className="text-[11px] font-semibold text-faint tracking-[0.06em] mb-2">
             EMAIL ORIGINAL
           </div>
-          <EmailBodyRenderer content={email.body_full || email.body_preview || 'Contenu indisponible.'} />
+          <EmailBodyRenderer
+            content={email.body_full || email.body_preview || 'Contenu indisponible.'}
+            emailId={email.id}
+          />
         </div>
 
         <div className="rounded-2xl bg-white border border-[#ebe7dd] shadow-[0_1px_3px_rgba(60,50,30,0.05)] overflow-hidden">
