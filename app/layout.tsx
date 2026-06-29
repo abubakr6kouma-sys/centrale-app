@@ -29,6 +29,9 @@ export const metadata: Metadata = {
   title: 'CentralY — l\'IA traite vos emails, vous gardez le contrôle',
   description:
     'CentralY analyse, classe et résume vos emails entrants, puis prépare une réponse professionnelle. Rien n\'est envoyé sans votre accord.',
+  verification: {
+    google: 'NYoQXa78jzWVIsDnsBy_wFtXAapE1HNsmLikeQ6WGz4',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
