@@ -4,211 +4,159 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { getGmailClientForUser } from '@/lib/gmailClient'
 import { gmail_v1 } from 'googleapis'
 
-// ──────────────────────────────────────────────────────────────
-// MIME helpers — independent of gmailParser.ts to avoid any
-// abstraction layering that might silently drop parts
-// ──────────────────────────────────────────────────────────────
+// ── MIME parsing ───────────────────────────────────────────────
 
-function decodeBase64Url(data: string): string {
+function b64decode(data: string): string {
   return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
 }
 
-/**
- * Depth-first search that logs every MIME part and returns the first text/html found.
- * Written maximally defensively so nothing can silently skip a part.
- */
-function findHtmlPartWithLog(
-  part: gmail_v1.Schema$MessagePart,
-  depth = 0,
-  log: string[]
-): string | null {
-  const indent = '  '.repeat(depth)
-  const size = part.body?.data ? part.body.data.length : 0
-  log.push(`${indent}[${part.mimeType ?? '(no-type)'}] data=${size}b parts=${part.parts?.length ?? 0}`)
-
+function findHtml(part: gmail_v1.Schema$MessagePart, log: string[], d = 0): string | null {
+  const pad = '  '.repeat(d)
+  log.push(`${pad}${part.mimeType ?? '?'} data=${part.body?.data?.length ?? 0} parts=${part.parts?.length ?? 0}`)
   if (part.mimeType === 'text/html' && part.body?.data) {
-    const decoded = decodeBase64Url(part.body.data)
-    log.push(`${indent}  ✅ HTML found — ${decoded.length} chars`)
-    return decoded
-  }
-
-  for (const sub of part.parts ?? []) {
-    const found = findHtmlPartWithLog(sub, depth + 1, log)
-    if (found) return found
-  }
-
-  return null
-}
-
-function findPlainText(part: gmail_v1.Schema$MessagePart): string | null {
-  if (part.mimeType === 'text/plain' && part.body?.data) {
-    return decodeBase64Url(part.body.data)
+    const s = b64decode(part.body.data)
+    log.push(`${pad}  → HTML ${s.length}c`)
+    return s
   }
   for (const sub of part.parts ?? []) {
-    const found = findPlainText(sub)
-    if (found) return found
+    const r = findHtml(sub, log, d + 1)
+    if (r) return r
   }
   return null
 }
 
-// ──────────────────────────────────────────────────────────────
-// HTML preparation
-// ──────────────────────────────────────────────────────────────
+function findPlain(part: gmail_v1.Schema$MessagePart): string | null {
+  if (part.mimeType === 'text/plain' && part.body?.data) return b64decode(part.body.data)
+  for (const sub of part.parts ?? []) { const r = findPlain(sub); if (r) return r }
+  return null
+}
 
-// Script injected by OUR server — runs after load to:
-// 1. Auto-resize iframe height via postMessage
-// 2. Replace <a> link text that IS a raw URL with the domain name only
-//    (same behaviour as Gmail: links show text, never the raw URL)
-const INJECT_SCRIPT = `
-<script>
+// ── HTML preparation ───────────────────────────────────────────
+
+// Script injected BY OUR SERVER — runs in the sandboxed iframe.
+// • Cleans up <a> whose visible text is a raw URL (shows domain instead)
+// • Sends content height to parent for auto-resize
+const SCRIPT = `<script>
 (function(){
-  // ── Fix links where visible text is a raw URL ──────────────
-  function fixLinks(){
+  function clean(){
     document.querySelectorAll('a').forEach(function(a){
-      var text=(a.textContent||'').trim();
-      if(!/^https?:\/\//.test(text))return;
-      try{
-        var domain=new URL(text).hostname.replace(/^www\./,'');
-        // Replace every text node inside the <a> with the domain
-        a.textContent=domain||'→';
-      }catch(e){a.textContent='→';}
+      var t=(a.textContent||'').trim();
+      if(!/^https?:\/\//.test(t))return;
+      try{a.textContent=new URL(t).hostname.replace(/^www\./,'');}
+      catch(e){a.textContent='→';}
     });
   }
-  // ── Auto-resize ─────────────────────────────────────────────
-  function sendH(){
-    var h=document.documentElement.scrollHeight||
-          (document.body&&document.body.scrollHeight)||300;
+  function height(){
+    var h=Math.max(document.documentElement.scrollHeight,
+                   document.body?document.body.scrollHeight:0,200);
     parent.postMessage({type:'email-height',h:h},'*');
   }
-  function run(){fixLinks();sendH();}
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',run);
-  }else{run();}
-  if(window.ResizeObserver){new ResizeObserver(sendH).observe(document.documentElement);}
+  function run(){clean();height();}
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',run);
+  else run();
+  // Re-send height after images finish loading
+  window.addEventListener('load',height);
+  if(window.ResizeObserver) new ResizeObserver(height).observe(document.documentElement);
 })();
 </script>`
 
-const BASE_INJECT = `<base target="_blank">
-<style>
-  img{max-width:100%!important;height:auto!important;display:block}
-  *{box-sizing:border-box;max-width:100%}
-  body{margin:0;padding:4px;word-break:break-word}
-  table{border-collapse:collapse}
-  a{word-break:break-all}
-</style>`
+// Minimal base: open links in new tab + keep images within iframe width.
+// We do NOT override font/color/background — let the email's own CSS control those.
+const BASE = `<base target="_blank">
+<style>img{max-width:100%!important}table{border-collapse:collapse}</style>`
 
-function prepareEmailHtml(rawHtml: string): string {
-  // Strip email scripts (we'll inject our own trusted resize script instead)
-  let h = rawHtml.replace(/<script[\s\S]*?<\/script>/gi, '')
+function wrap(raw: string): string {
+  // Remove only email-authored scripts (we inject our own trusted one)
+  let h = raw.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
 
+  // Inject BASE inside <head>
   if (/<\/head>/i.test(h)) {
-    h = h.replace(/<\/head>/i, BASE_INJECT + '</head>')
-  } else if (/<body[^>]*>/i.test(h)) {
-    h = h.replace(/(<body[^>]*>)/i, '$1' + BASE_INJECT)
+    h = h.replace(/<\/head>/i, BASE + '</head>')
+  } else if (/<html[^>]*>/i.test(h)) {
+    h = h.replace(/(<html[^>]*>)/i, '$1<head>' + BASE + '</head>')
   } else {
-    h = `<!DOCTYPE html><html><head><meta charset="UTF-8">${BASE_INJECT}</head><body>${h}</body></html>`
+    h = `<!DOCTYPE html><html><head><meta charset="UTF-8">${BASE}</head><body>${h}</body></html>`
   }
 
-  // Inject resize script before </body>
-  h = h.replace(/<\/body>/i, INJECT_SCRIPT + '</body>')
-  if (!h.includes(INJECT_SCRIPT)) h += INJECT_SCRIPT
-
-  return h
+  // Inject our script before </body>
+  return /<\/body>/i.test(h)
+    ? h.replace(/<\/body>/i, SCRIPT + '</body>')
+    : h + SCRIPT
 }
 
-function escHtml(s: string): string {
+function esc(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function plainToHtml(text: string): string {
-  // Replace raw URLs with domain-only link text (never show the full URL)
-  const linked = escHtml(text).replace(
-    /(https?:\/\/[^\s<>"]+[^\s<>".,!?;:)]+)/g,
-    (url) => {
-      let label = '→'
-      try { label = new URL(url).hostname.replace(/^www\./, '') } catch {}
-      return `<a href="${url}">${label}</a>`
-    }
-  )
+// Plain-text emails: URLs become domain links, never raw URL text
+function plainWrap(text: string): string {
+  const body = esc(text).replace(/(https?:\/\/[^\s<>"]+[^\s<>".,!?;:)]+)/g, (url) => {
+    let lbl = '→'
+    try { lbl = new URL(url).hostname.replace(/^www\./, '') } catch {}
+    return `<a href="${url}" style="color:#1a73e8">${lbl}</a>`
+  })
   return `<!DOCTYPE html><html>
-<head><meta charset="UTF-8"><base target="_blank">
-<style>
-  body{margin:0;padding:4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13.5px;color:#3a3a36;line-height:1.7;word-break:break-word}
-  pre{white-space:pre-wrap;margin:0}
-  a{color:#8a6648;text-decoration:underline}
-</style>
-</head>
-<body><pre>${linked}</pre>${INJECT_SCRIPT}</body></html>`
+<head><meta charset="UTF-8">${BASE}</head>
+<body style="font-family:Google Sans,Roboto,Arial,sans-serif;font-size:14px;color:#202124;line-height:1.6;padding:0;margin:0">
+<div style="padding:8px 0"><pre style="white-space:pre-wrap;margin:0;font-family:inherit;font-size:inherit">${body}</pre></div>
+${SCRIPT}
+</body></html>`
 }
 
-// ──────────────────────────────────────────────────────────────
-// Route handler
-// ──────────────────────────────────────────────────────────────
-
-function htmlResponse(content: string): Response {
-  return new Response(content, {
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'X-Frame-Options': 'SAMEORIGIN',
-    },
+function htmlRes(c: string) {
+  return new Response(c, {
+    headers: { 'Content-Type': 'text/html;charset=utf-8', 'X-Frame-Options': 'SAMEORIGIN' },
   })
 }
 
+// ── Route handler ──────────────────────────────────────────────
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser()
-  if (!user) return htmlResponse('<p>Non autorisé</p>')
+  if (!user) return htmlRes('<p>Non autorisé</p>')
 
-  const { data: emailRow } = await supabaseAdmin
+  const { data: row } = await supabaseAdmin
     .from('emails')
     .select('id, gmail_message_id, body_full')
     .eq('id', params.id)
     .eq('user_id', user.id)
     .maybeSingle()
 
-  if (!emailRow) return htmlResponse('<p>Email introuvable</p>')
+  if (!row) return htmlRes('<p>Introuvable</p>')
 
-  // ── 1. Already stored as HTML in DB ───────────────────────
-  const stored = (emailRow.body_full ?? '').trimStart()
-  if (stored.startsWith('<') && /<(html|body|div|table)/i.test(stored.slice(0, 500))) {
-    console.log(`[html-render] ${params.id}: serving cached HTML from DB (${stored.length} chars)`)
-    return htmlResponse(prepareEmailHtml(stored))
+  // 1. Serve from DB cache if already HTML
+  const stored = (row.body_full ?? '').trimStart()
+  if (stored.startsWith('<') && /<(html|body|div|table)/i.test(stored.slice(0, 600))) {
+    console.log(`[html-render] ${params.id} cache hit ${stored.length}c`)
+    return htmlRes(wrap(stored))
   }
 
-  // ── 2. Re-fetch from Gmail ─────────────────────────────────
-  const mimeLog: string[] = []
+  // 2. Re-fetch from Gmail
+  const log: string[] = []
   try {
-    console.log(`[html-render] ${params.id}: fetching from Gmail (gmail_id=${emailRow.gmail_message_id})`)
     const gmail = await getGmailClientForUser(user.id)
-    const { data: message } = await gmail.users.messages.get({
+    const { data: msg } = await gmail.users.messages.get({
       userId: 'me',
-      id: emailRow.gmail_message_id,
+      id: row.gmail_message_id,
       format: 'full',
     })
 
-    const topPart = message.payload
-    if (!topPart) {
-      console.log(`[html-render] ${params.id}: no payload in Gmail response`)
-      return htmlResponse(plainToHtml(stored))
+    console.log(`[html-render] ${params.id} top=${msg.payload?.mimeType}`)
+    const htmlPart = msg.payload ? findHtml(msg.payload, log) : null
+    console.log(`[html-render] MIME tree:\n${log.join('\n')}`)
+
+    if (htmlPart) {
+      console.log(`[html-render] ${params.id} HTML found ${htmlPart.length}c — caching`)
+      await supabaseAdmin.from('emails').update({ body_full: htmlPart }).eq('id', row.id)
+      return htmlRes(wrap(htmlPart))
     }
 
-    console.log(`[html-render] ${params.id}: top-level mimeType=${topPart.mimeType}`)
-
-    const htmlBody = findHtmlPartWithLog(topPart, 0, mimeLog)
-    console.log(`[html-render] MIME tree:\n${mimeLog.join('\n')}`)
-
-    if (htmlBody) {
-      console.log(`[html-render] ${params.id}: HTML found (${htmlBody.length} chars) — caching in DB`)
-      await supabaseAdmin.from('emails').update({ body_full: htmlBody }).eq('id', emailRow.id)
-      return htmlResponse(prepareEmailHtml(htmlBody))
-    }
-
-    // No HTML part — use plain text
-    const plainBody = findPlainText(topPart) ?? stored ?? message.snippet ?? ''
-    console.log(`[html-render] ${params.id}: no HTML found, rendering plain text (${plainBody.length} chars)`)
-    return htmlResponse(plainToHtml(plainBody))
+    const plain = msg.payload ? findPlain(msg.payload) : null
+    const fallback = plain || stored || msg.snippet || ''
+    console.log(`[html-render] ${params.id} no HTML, plain ${fallback.length}c`)
+    return htmlRes(plainWrap(fallback))
   } catch (err) {
-    console.error(`[html-render] ${params.id}: Gmail fetch failed`, err)
-    console.log(`[html-render] MIME tree so far:\n${mimeLog.join('\n')}`)
-    return htmlResponse(plainToHtml(stored))
+    console.error(`[html-render] ${params.id}`, err)
+    return htmlRes(plainWrap(stored))
   }
 }
