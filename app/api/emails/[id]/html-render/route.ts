@@ -10,25 +10,46 @@ function b64decode(data: string): string {
   return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
 }
 
-function findHtml(part: gmail_v1.Schema$MessagePart, log: string[], d = 0): string | null {
-  const pad = '  '.repeat(d)
-  log.push(`${pad}${part.mimeType ?? '?'} data=${part.body?.data?.length ?? 0} parts=${part.parts?.length ?? 0}`)
-  if (part.mimeType === 'text/html' && part.body?.data) {
-    const s = b64decode(part.body.data)
-    log.push(`${pad}  → HTML ${s.length}c`)
-    return s
-  }
-  for (const sub of part.parts ?? []) {
-    const r = findHtml(sub, log, d + 1)
-    if (r) return r
-  }
-  return null
+interface MimeResult {
+  html: string | null
+  htmlAttachmentId: string | null
+  plain: string | null
 }
 
-function findPlain(part: gmail_v1.Schema$MessagePart): string | null {
-  if (part.mimeType === 'text/plain' && part.body?.data) return b64decode(part.body.data)
-  for (const sub of part.parts ?? []) { const r = findPlain(sub); if (r) return r }
-  return null
+// DFS over the MIME tree — collects first text/html and text/plain found.
+// Also records attachmentId when body.data is absent (large body stored separately).
+function findParts(part: gmail_v1.Schema$MessagePart, log: string[], d = 0): MimeResult {
+  const pad = '  '.repeat(d)
+  log.push(`${pad}${part.mimeType ?? '?'} data=${part.body?.data?.length ?? 0} attachId=${part.body?.attachmentId ?? '-'} parts=${part.parts?.length ?? 0}`)
+
+  const result: MimeResult = { html: null, htmlAttachmentId: null, plain: null }
+
+  if (part.mimeType === 'text/html') {
+    if (part.body?.data) {
+      result.html = b64decode(part.body.data)
+      log.push(`${pad}  → HTML inline ${result.html.length}c`)
+    } else if (part.body?.attachmentId) {
+      result.htmlAttachmentId = part.body.attachmentId
+      log.push(`${pad}  → HTML via attachmentId=${result.htmlAttachmentId}`)
+    }
+    return result
+  }
+
+  if (part.mimeType === 'text/plain' && part.body?.data) {
+    result.plain = b64decode(part.body.data)
+  }
+
+  for (const sub of part.parts ?? []) {
+    const sub_r = findParts(sub, log, d + 1)
+    if (!result.html && !result.htmlAttachmentId) {
+      result.html = sub_r.html
+      result.htmlAttachmentId = sub_r.htmlAttachmentId
+    }
+    if (!result.plain) result.plain = sub_r.plain
+    if ((result.html || result.htmlAttachmentId) && result.plain) break
+  }
+
+  return result
 }
 
 // ── HTML preparation ───────────────────────────────────────────
@@ -88,9 +109,26 @@ function esc(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// Decode &#NNN; and &#xNNN; HTML entities to their Unicode characters,
+// so they don't get double-escaped by esc() and appear visible as "&#8199;" etc.
+function decodeNumericEntities(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_, n) => {
+      const cp = Number(n)
+      return cp > 0 && cp <= 0x10FFFF ? String.fromCodePoint(cp) : ''
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => {
+      const cp = parseInt(h, 16)
+      return cp > 0 && cp <= 0x10FFFF ? String.fromCodePoint(cp) : ''
+    })
+}
+
 // Plain-text emails: URLs become domain links, never raw URL text
 function plainWrap(text: string): string {
-  const body = esc(text).replace(/(https?:\/\/[^\s<>"]+[^\s<>".,!?;:)]+)/g, (url) => {
+  // Decode HTML numeric entities first (e.g. &#8199; → invisible char)
+  // so esc() doesn't double-escape them into visible "&#8199;" text
+  const decoded = decodeNumericEntities(text)
+  const body = esc(decoded).replace(/(https?:\/\/[^\s<>"]+[^\s<>".,!?;:)]+)/g, (url) => {
     let lbl = '→'
     try { lbl = new URL(url).hostname.replace(/^www\./, '') } catch {}
     return `<a href="${url}" style="color:#1a73e8">${lbl}</a>`
@@ -142,18 +180,33 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     })
 
     console.log(`[html-render] ${params.id} top=${msg.payload?.mimeType}`)
-    const htmlPart = msg.payload ? findHtml(msg.payload, log) : null
-    console.log(`[html-render] MIME tree:\n${log.join('\n')}`)
+    const parts = msg.payload ? findParts(msg.payload, log) : { html: null, htmlAttachmentId: null, plain: null }
+    console.log(`[html-render] MIME:\n${log.join('\n')}`)
 
-    if (htmlPart) {
-      console.log(`[html-render] ${params.id} HTML found ${htmlPart.length}c — caching`)
-      await supabaseAdmin.from('emails').update({ body_full: htmlPart }).eq('id', row.id)
-      return htmlRes(wrap(htmlPart))
+    let htmlBody = parts.html
+
+    // Fetch large HTML body stored as an attachment (Gmail API puts large bodies here)
+    if (!htmlBody && parts.htmlAttachmentId) {
+      console.log(`[html-render] ${params.id} fetching HTML via attachmentId=${parts.htmlAttachmentId}`)
+      const att = await gmail.users.messages.attachments.get({
+        userId: 'me',
+        messageId: row.gmail_message_id,
+        id: parts.htmlAttachmentId,
+      })
+      if (att.data?.data) {
+        htmlBody = b64decode(att.data.data)
+        console.log(`[html-render] ${params.id} HTML via attachment ${htmlBody.length}c`)
+      }
     }
 
-    const plain = msg.payload ? findPlain(msg.payload) : null
-    const fallback = plain || stored || msg.snippet || ''
-    console.log(`[html-render] ${params.id} no HTML, plain ${fallback.length}c`)
+    if (htmlBody) {
+      console.log(`[html-render] ${params.id} HTML ${htmlBody.length}c — caching`)
+      await supabaseAdmin.from('emails').update({ body_full: htmlBody }).eq('id', row.id)
+      return htmlRes(wrap(htmlBody))
+    }
+
+    const fallback = parts.plain || stored || msg.snippet || ''
+    console.log(`[html-render] ${params.id} no HTML — plain ${fallback.length}c`)
     return htmlRes(plainWrap(fallback))
   } catch (err) {
     console.error(`[html-render] ${params.id}`, err)
