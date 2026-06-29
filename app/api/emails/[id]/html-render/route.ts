@@ -55,16 +55,35 @@ function findPlainText(part: gmail_v1.Schema$MessagePart): string | null {
 // HTML preparation
 // ──────────────────────────────────────────────────────────────
 
-// Script injected by OUR server (not from the email) — safe to allow-scripts
-const RESIZE_SCRIPT = `
+// Script injected by OUR server — runs after load to:
+// 1. Auto-resize iframe height via postMessage
+// 2. Replace <a> link text that IS a raw URL with the domain name only
+//    (same behaviour as Gmail: links show text, never the raw URL)
+const INJECT_SCRIPT = `
 <script>
 (function(){
+  // ── Fix links where visible text is a raw URL ──────────────
+  function fixLinks(){
+    document.querySelectorAll('a').forEach(function(a){
+      var text=(a.textContent||'').trim();
+      if(!/^https?:\/\//.test(text))return;
+      try{
+        var domain=new URL(text).hostname.replace(/^www\./,'');
+        // Replace every text node inside the <a> with the domain
+        a.textContent=domain||'→';
+      }catch(e){a.textContent='→';}
+    });
+  }
+  // ── Auto-resize ─────────────────────────────────────────────
   function sendH(){
-    var h=document.documentElement.scrollHeight||document.body&&document.body.scrollHeight||300;
+    var h=document.documentElement.scrollHeight||
+          (document.body&&document.body.scrollHeight)||300;
     parent.postMessage({type:'email-height',h:h},'*');
   }
-  if(document.readyState==='complete')sendH();
-  else window.addEventListener('load',sendH);
+  function run(){fixLinks();sendH();}
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',run);
+  }else{run();}
   if(window.ResizeObserver){new ResizeObserver(sendH).observe(document.documentElement);}
 })();
 </script>`
@@ -91,8 +110,8 @@ function prepareEmailHtml(rawHtml: string): string {
   }
 
   // Inject resize script before </body>
-  h = h.replace(/<\/body>/i, RESIZE_SCRIPT + '</body>')
-  if (!h.includes(RESIZE_SCRIPT)) h += RESIZE_SCRIPT
+  h = h.replace(/<\/body>/i, INJECT_SCRIPT + '</body>')
+  if (!h.includes(INJECT_SCRIPT)) h += INJECT_SCRIPT
 
   return h
 }
@@ -102,19 +121,24 @@ function escHtml(s: string): string {
 }
 
 function plainToHtml(text: string): string {
+  // Replace raw URLs with domain-only link text (never show the full URL)
   const linked = escHtml(text).replace(
     /(https?:\/\/[^\s<>"]+[^\s<>".,!?;:)]+)/g,
-    '<a href="$1">$1</a>'
+    (url) => {
+      let label = '→'
+      try { label = new URL(url).hostname.replace(/^www\./, '') } catch {}
+      return `<a href="${url}">${label}</a>`
+    }
   )
   return `<!DOCTYPE html><html>
 <head><meta charset="UTF-8"><base target="_blank">
 <style>
   body{margin:0;padding:4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13.5px;color:#3a3a36;line-height:1.7;word-break:break-word}
   pre{white-space:pre-wrap;margin:0}
-  a{color:#8a6648;word-break:break-all}
+  a{color:#8a6648;text-decoration:underline}
 </style>
 </head>
-<body><pre>${linked}</pre>${RESIZE_SCRIPT}</body></html>`
+<body><pre>${linked}</pre>${INJECT_SCRIPT}</body></html>`
 }
 
 // ──────────────────────────────────────────────────────────────
