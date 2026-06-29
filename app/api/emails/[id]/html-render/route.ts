@@ -143,7 +143,7 @@ ${SCRIPT}
 
 function htmlRes(c: string) {
   return new Response(c, {
-    headers: { 'Content-Type': 'text/html;charset=utf-8', 'X-Frame-Options': 'SAMEORIGIN' },
+    headers: { 'Content-Type': 'text/html;charset=utf-8' },
   })
 }
 
